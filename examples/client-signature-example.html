@@ -1,0 +1,506 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>EVM Wallet Login - Client Example</title>
+    <script src="https://cdn.ethers.io/lib/ethers-5.7.2.umd.min.js"></script>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        max-width: 800px;
+        margin: 50px auto;
+        padding: 20px;
+        background: #f5f5f5;
+      }
+      .container {
+        background: white;
+        padding: 30px;
+        border-radius: 10px;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+      }
+      h1 {
+        color: #333;
+      }
+      .step {
+        margin: 20px 0;
+        padding: 15px;
+        background: #f9f9f9;
+        border-left: 4px solid #4caf50;
+        border-radius: 4px;
+      }
+      button {
+        background: #4caf50;
+        color: white;
+        border: none;
+        padding: 12px 24px;
+        border-radius: 5px;
+        cursor: pointer;
+        font-size: 16px;
+        margin: 10px 5px;
+      }
+      button:hover {
+        background: #45a049;
+      }
+      button:disabled {
+        background: #ccc;
+        cursor: not-allowed;
+      }
+      .info {
+        background: #e3f2fd;
+        padding: 15px;
+        border-radius: 5px;
+        margin: 10px 0;
+        word-break: break-all;
+      }
+      .error {
+        background: #ffebee;
+        color: #c62828;
+        padding: 15px;
+        border-radius: 5px;
+        margin: 10px 0;
+      }
+      .success {
+        background: #e8f5e9;
+        color: #2e7d32;
+        padding: 15px;
+        border-radius: 5px;
+        margin: 10px 0;
+      }
+      code {
+        background: #f4f4f4;
+        padding: 2px 6px;
+        border-radius: 3px;
+        font-family: monospace;
+      }
+      input {
+        width: 100%;
+        padding: 10px;
+        margin: 10px 0;
+        border: 1px solid #ddd;
+        border-radius: 5px;
+        box-sizing: border-box;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>🔐 EVM Wallet Login - Client Example</h1>
+      <p>
+        Ví dụ này minh họa cách client sign message và gửi lên server để verify.
+      </p>
+
+      <div class="step">
+        <h3>Bước 1: Kết nối Wallet</h3>
+        <div id="metamaskStatus" style="margin: 10px 0"></div>
+        <button id="connectBtn" onclick="connectWallet()">
+          Connect Wallet (MetaMask)
+        </button>
+        <div id="walletInfo" class="info" style="display: none">
+          <strong>Connected Wallet:</strong> <span id="walletAddress"></span>
+        </div>
+      </div>
+
+      <div class="step">
+        <h3>Bước 2: Request Nonce từ Server</h3>
+        <label>API Base URL:</label>
+        <input
+          type="text"
+          id="apiUrl"
+          value="http://localhost:3000"
+          placeholder="http://localhost:3000"
+        />
+        <button id="getNonceBtn" onclick="getNonce()" disabled>
+          Get Nonce from Server
+        </button>
+        <div id="nonceInfo" class="info" style="display: none">
+          <strong>Nonce:</strong> <span id="nonceValue"></span><br />
+          <strong>Message to Sign:</strong> <span id="messageValue"></span>
+        </div>
+      </div>
+
+      <div class="step">
+        <h3>Bước 3: Sign Message với Wallet</h3>
+        <p>
+          <strong>Lưu ý:</strong> Chỉ client mới có thể sign. Server sẽ verify
+          signature.
+        </p>
+        <button id="signBtn" onclick="signMessage()" disabled>
+          Sign Message
+        </button>
+        <div id="signatureInfo" class="info" style="display: none">
+          <strong>Signature:</strong> <span id="signatureValue"></span>
+        </div>
+      </div>
+
+      <div class="step">
+        <h3>Bước 4: Gửi Signature lên Server để Verify</h3>
+        <p>
+          <strong>Lưu ý:</strong> Chỉ server mới verify được. Client không
+          verify.
+        </p>
+        <button id="loginBtn" onclick="login()" disabled>
+          Login (Server will verify)
+        </button>
+        <div id="loginResult"></div>
+      </div>
+
+      <div class="step">
+        <h3>📋 Flow Summary</h3>
+        <ol>
+          <li><strong>Client:</strong> Request nonce từ server</li>
+          <li><strong>Client:</strong> Sign message với wallet (MetaMask)</li>
+          <li><strong>Client:</strong> Gửi signature + message lên server</li>
+          <li>
+            <strong>Server:</strong> Verify signature (recover address từ
+            signature)
+          </li>
+          <li>
+            <strong>Server:</strong> So sánh recovered address với wallet
+            address
+          </li>
+          <li>
+            <strong>Server:</strong> Trả về user data nếu verify thành công
+          </li>
+        </ol>
+      </div>
+    </div>
+
+    <script>
+      let connectedWallet = null;
+      let currentNonce = null;
+      let currentMessage = null;
+      let currentSignature = null;
+
+      // Check MetaMask status
+      function checkMetaMask() {
+        const statusDiv = document.getElementById('metamaskStatus');
+
+        // Check for MetaMask
+        if (typeof window.ethereum !== 'undefined') {
+          // Check if it's MetaMask specifically
+          const isMetaMask =
+            window.ethereum.isMetaMask ||
+            (window.ethereum.providers &&
+              window.ethereum.providers.find((p) => p.isMetaMask));
+
+          if (isMetaMask || window.ethereum.isMetaMask) {
+            statusDiv.innerHTML =
+              '<div class="success">✅ MetaMask detected!</div>';
+            return true;
+          } else {
+            statusDiv.innerHTML =
+              '<div class="info">⚠️ Ethereum provider detected (may not be MetaMask)</div>';
+            return true;
+          }
+        } else {
+          statusDiv.innerHTML =
+            '<div class="error">❌ MetaMask not detected! Please install MetaMask extension.</div>';
+          return false;
+        }
+      }
+
+      // Bước 1: Connect Wallet
+      async function connectWallet() {
+        const statusDiv = document.getElementById('metamaskStatus');
+        const connectBtn = document.getElementById('connectBtn');
+
+        try {
+          // Check MetaMask first
+          if (typeof window.ethereum === 'undefined') {
+            statusDiv.innerHTML =
+              '<div class="error">❌ MetaMask chưa được cài đặt! Vui lòng cài MetaMask extension từ <a href="https://metamask.io" target="_blank">metamask.io</a></div>';
+            return;
+          }
+
+          connectBtn.disabled = true;
+          connectBtn.textContent = 'Connecting...';
+
+          // Try to get provider - handle both old and new MetaMask
+          let provider = window.ethereum;
+
+          // If MetaMask v10+ with providers array
+          if (
+            window.ethereum.providers &&
+            Array.isArray(window.ethereum.providers)
+          ) {
+            provider =
+              window.ethereum.providers.find((p) => p.isMetaMask) ||
+              window.ethereum.providers[0];
+          }
+
+          console.log('🔍 Detected provider:', provider);
+          console.log('🔍 Is MetaMask:', provider.isMetaMask);
+
+          // Request account access
+          const accounts = await provider.request({
+            method: 'eth_requestAccounts',
+          });
+
+          if (!accounts || accounts.length === 0) {
+            throw new Error('No accounts found. Please unlock MetaMask.');
+          }
+
+          connectedWallet = accounts[0];
+          document.getElementById('walletAddress').textContent =
+            connectedWallet;
+          document.getElementById('walletInfo').style.display = 'block';
+          document.getElementById('getNonceBtn').disabled = false;
+          statusDiv.innerHTML =
+            '<div class="success">✅ Wallet connected successfully!</div>';
+
+          console.log('✅ Connected wallet:', connectedWallet);
+        } catch (error) {
+          console.error('❌ Error connecting wallet:', error);
+
+          let errorMessage = 'Lỗi kết nối wallet: ';
+          if (error.code === 4001) {
+            errorMessage =
+              'User đã từ chối kết nối. Vui lòng approve trong MetaMask.';
+          } else if (error.code === -32002) {
+            errorMessage =
+              'Request đang pending. Vui lòng mở MetaMask và approve.';
+          } else {
+            errorMessage += error.message;
+          }
+
+          statusDiv.innerHTML = `<div class="error">❌ ${errorMessage}</div>`;
+          alert(errorMessage);
+        } finally {
+          connectBtn.disabled = false;
+          connectBtn.textContent = 'Connect Wallet (MetaMask)';
+        }
+      }
+
+      // Bước 2: Get Nonce từ Server
+      async function getNonce() {
+        if (!connectedWallet) {
+          alert('Vui lòng connect wallet trước!');
+          return;
+        }
+
+        const apiUrl = document.getElementById('apiUrl').value;
+        const getNonceBtn = document.getElementById('getNonceBtn');
+        getNonceBtn.disabled = true;
+        getNonceBtn.textContent = 'Loading...';
+
+        try {
+          const response = await fetch(
+            `${apiUrl}/auth/nonce?walletAddress=${connectedWallet}`,
+          );
+
+          if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+          }
+
+          const data = await response.json();
+          currentNonce = data.nonce;
+          currentMessage = data.message;
+
+          document.getElementById('nonceValue').textContent = currentNonce;
+          document.getElementById('messageValue').textContent = currentMessage;
+          document.getElementById('nonceInfo').style.display = 'block';
+          document.getElementById('signBtn').disabled = false;
+
+          console.log('✅ Nonce received:', currentNonce);
+          console.log('✅ Message to sign:', currentMessage);
+        } catch (error) {
+          console.error('❌ Error getting nonce:', error);
+          document.getElementById('loginResult').innerHTML =
+            `<div class="error">Lỗi: ${error.message}<br>Đảm bảo server đang chạy tại ${apiUrl}</div>`;
+        } finally {
+          getNonceBtn.disabled = false;
+          getNonceBtn.textContent = 'Get Nonce from Server';
+        }
+      }
+
+      // Bước 3: Sign Message với Wallet
+      async function signMessage() {
+        if (!currentMessage) {
+          alert('Vui lòng get nonce trước!');
+          return;
+        }
+
+        if (typeof window.ethereum === 'undefined') {
+          alert('MetaMask chưa được cài đặt!');
+          return;
+        }
+
+        const signBtn = document.getElementById('signBtn');
+        signBtn.disabled = true;
+        signBtn.textContent = 'Signing...';
+
+        try {
+          // Get provider - handle both old and new MetaMask
+          let ethereumProvider = window.ethereum;
+          if (
+            window.ethereum.providers &&
+            Array.isArray(window.ethereum.providers)
+          ) {
+            ethereumProvider =
+              window.ethereum.providers.find((p) => p.isMetaMask) ||
+              window.ethereum.providers[0];
+          }
+
+          // Sử dụng ethers.js để sign message
+          const provider = new ethers.providers.Web3Provider(ethereumProvider);
+
+          // Request accounts to ensure we have access
+          await provider.send('eth_requestAccounts', []);
+
+          const signer = provider.getSigner();
+          const signerAddress = await signer.getAddress();
+
+          console.log('📝 Signing message with address:', signerAddress);
+          console.log('📝 Message:', currentMessage);
+
+          // Sign message - CHỈ CLIENT MỚI LÀM ĐƯỢC
+          currentSignature = await signer.signMessage(currentMessage);
+
+          document.getElementById('signatureValue').textContent =
+            currentSignature;
+          document.getElementById('signatureInfo').style.display = 'block';
+          document.getElementById('loginBtn').disabled = false;
+
+          console.log('✅ Message signed:', currentSignature);
+          console.log('📝 Note: Chỉ server mới có thể verify signature này!');
+        } catch (error) {
+          console.error('❌ Error signing message:', error);
+          let errorMessage = 'Lỗi khi sign: ';
+          if (error.code === 4001) {
+            errorMessage =
+              'User đã từ chối sign message. Vui lòng approve trong MetaMask.';
+          } else if (error.code === -32002) {
+            errorMessage =
+              'Request đang pending. Vui lòng mở MetaMask và approve.';
+          } else {
+            errorMessage += error.message;
+          }
+          alert(errorMessage);
+        } finally {
+          signBtn.disabled = false;
+          signBtn.textContent = 'Sign Message';
+        }
+      }
+
+      // Bước 4: Login - Server sẽ verify
+      async function login() {
+        if (!currentSignature || !currentMessage) {
+          alert('Vui lòng sign message trước!');
+          return;
+        }
+
+        const apiUrl = document.getElementById('apiUrl').value;
+        const loginBtn = document.getElementById('loginBtn');
+        loginBtn.disabled = true;
+        loginBtn.textContent = 'Logging in...';
+
+        try {
+          // Gửi signature lên server - SERVER SẼ VERIFY
+          const response = await fetch(`${apiUrl}/auth/login`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              walletAddress: connectedWallet,
+              signature: currentSignature,
+              message: currentMessage,
+              region: 'us',
+            }),
+          });
+
+          const data = await response.json();
+
+          if (!response.ok) {
+            throw new Error(data.message || 'Login failed');
+          }
+
+          document.getElementById('loginResult').innerHTML = `
+                    <div class="success">
+                        <h4>✅ Login thành công!</h4>
+                        <pre>${JSON.stringify(data, null, 2)}</pre>
+                        <p><strong>Lưu ý:</strong> Server đã verify signature và xác nhận bạn sở hữu wallet này.</p>
+                    </div>
+                `;
+
+          console.log('✅ Login successful:', data);
+        } catch (error) {
+          console.error('❌ Error logging in:', error);
+          document.getElementById('loginResult').innerHTML =
+            `<div class="error">Lỗi login: ${error.message}</div>`;
+        } finally {
+          loginBtn.disabled = false;
+          loginBtn.textContent = 'Login (Server will verify)';
+        }
+      }
+
+      // Check MetaMask on page load
+      window.addEventListener('load', () => {
+        checkMetaMask();
+
+        // Auto-connect nếu đã connected trước đó
+        if (typeof window.ethereum !== 'undefined') {
+          let provider = window.ethereum;
+          if (
+            window.ethereum.providers &&
+            Array.isArray(window.ethereum.providers)
+          ) {
+            provider =
+              window.ethereum.providers.find((p) => p.isMetaMask) ||
+              window.ethereum.providers[0];
+          }
+
+          provider
+            .request({ method: 'eth_accounts' })
+            .then((accounts) => {
+              if (accounts && accounts.length > 0) {
+                connectedWallet = accounts[0];
+                document.getElementById('walletAddress').textContent =
+                  connectedWallet;
+                document.getElementById('walletInfo').style.display = 'block';
+                document.getElementById('getNonceBtn').disabled = false;
+                console.log('✅ Auto-connected to:', connectedWallet);
+              }
+            })
+            .catch((error) => {
+              console.error('Error checking accounts:', error);
+            });
+        }
+      });
+
+      // Listen for account changes
+      if (typeof window.ethereum !== 'undefined') {
+        let provider = window.ethereum;
+        if (
+          window.ethereum.providers &&
+          Array.isArray(window.ethereum.providers)
+        ) {
+          provider =
+            window.ethereum.providers.find((p) => p.isMetaMask) ||
+            window.ethereum.providers[0];
+        }
+
+        provider.on('accountsChanged', (accounts) => {
+          if (accounts.length === 0) {
+            connectedWallet = null;
+            document.getElementById('walletInfo').style.display = 'none';
+            document.getElementById('getNonceBtn').disabled = true;
+            console.log('🔌 Wallet disconnected');
+          } else {
+            connectedWallet = accounts[0];
+            document.getElementById('walletAddress').textContent =
+              connectedWallet;
+            document.getElementById('walletInfo').style.display = 'block';
+            document.getElementById('getNonceBtn').disabled = false;
+            console.log('🔄 Wallet changed to:', connectedWallet);
+          }
+        });
+
+        provider.on('chainChanged', () => {
+          window.location.reload();
+        });
+      }
+    </script>
+  </body>
+</html>

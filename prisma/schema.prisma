@@ -1,0 +1,103 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+
+datasource db {
+  provider = "postgresql"
+}
+
+generator client {
+  provider = "prisma-client"
+  output          = "./generated"
+}
+
+model User {
+  id    Int     @default(autoincrement()) @id
+  walletAddress String  @unique
+  name  String?
+  vipLevel          Int        @default(0) // 0: normal, 1: VIP, 2: VIP+
+  referredByAddress String?
+  referredBy        User?      @relation("referrals", fields: [referredByAddress], references: [walletAddress])
+  balance Balance?
+  referrals User[] @relation("referrals")
+  positions Position[]
+  isWhitelisted Boolean @default(false)
+  autoTrading AutoTrading?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  region String @default("us") // us, eu, etc.
+  nonce String @default("") // Nonce for signature verification to prevent replay attacks
+  @@index([walletAddress])
+}
+
+
+model Position {
+  id        Int      @default(autoincrement()) @id
+  asset Asset @relation(fields: [assetId], references: [id])
+  assetId Int
+  side PositionSide
+  openPrice       Float
+  closePrice       Float?
+  quantity    Float
+  leverage Int @default(1)
+  user User @relation(fields: [userWalletAddress], references: [walletAddress])
+  userWalletAddress String
+  reason String?
+  createdAt DateTime @default(now())
+  closedAt DateTime?
+}
+
+model AutoTrading{
+  id Int @default(autoincrement()) @id
+  user User @relation(fields: [userWalletAddress], references: [walletAddress])
+  userWalletAddress String @unique
+  isActive Boolean @default(true)
+  isRunning Boolean @default(false)
+  isPaused Boolean @default(false)
+  isStopped Boolean @default(false) 
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Balance{    
+  id Int @default(autoincrement()) @id
+  user User @relation(fields: [userWalletAddress], references: [walletAddress])
+  userWalletAddress String @unique
+  balance Decimal @default(0)
+  availableBalance Decimal @default(0)
+  lockedBalance Decimal @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  balanceHistory BalanceHistory[]
+}
+
+model BalanceHistory{
+  id Int @default(autoincrement()) @id
+  balance Balance @relation(fields: [balanceId], references: [id])
+  balanceId Int
+  amount Decimal
+  createdAt DateTime @default(now())
+}
+
+model Asset {
+  id Int @default(autoincrement()) @id
+  symbol String @unique
+  name String
+  price Float
+  positions Position[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+
+enum PositionSide {
+  LONG
+  SHORT
+}
+
+
+
+
